@@ -23,8 +23,7 @@
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 #  SOFTWARE.
 
-
-import urllib.request
+import urllib3
 from bs4 import BeautifulSoup
 
 
@@ -33,31 +32,30 @@ class NomoroboService(object):
     def lookup_number(self, number):
         number = '{}-{}-{}'.format(number[0:3], number[3:6], number[6:])
         url = "https://www.nomorobo.com/lookup/%s" % number
-        # print(url)
-        headers = {}
-        allowed_codes = [404]  # allow not found response
-        content = self.http_get(url, headers, allowed_codes)
-        soup = BeautifulSoup(content, "lxml")  # lxml HTML parser: fast
+#        url = "http://slurm.abaddon.arpa/"
+        print(url)
+        allowed_codes = [200,404]  # allow not found response
+        htmp_doc = self.http_get(url, allowed_codes)
+        soup = BeautifulSoup(htmp_doc, 'html.parser')
+        hotsoup = str(soup.title.string).upper()
+        
+        score = 0  # = I'll have your spam!
+        decision = "ANSWER"
 
-        score = 0  # = no spam
+        if "UNKNOWN CALLER" in hotsoup:
+            print("Nuisance!")
+            score = 1 # might be spam
+            decision = "SCREEN"
 
-        positions = soup.findAll(class_="profile-position")
-        if len(positions) > 0:
-            position = positions[0].get_text()
-            if position.upper().find("DO NOT ANSWER") > -1:
-                # print("Spammer!")
-                score = 2  # = is spam
-            else:
-                # print("Nuisance!")
-                score = 1  # = might be spam (caller is "Political", "Charity", or "Debt Collector")
+        if "DO NOT ANSWER" in hotsoup:
+            print("Spammer!")
+            score = 2 # is spam
+            decision = "VOICEMAIL"
 
         reason = ""
-        titles = soup.findAll(class_="profile-title")
-        if len(titles) > 0:
-            reason = titles[0].get_text()
-            reason = reason.replace("\n", "").strip(" ")
-            # TODO: if score == 1, check for "Political", "Charity", and/or "Debt Collector"
-            # in the reason and adjust the score if appropriate
+        for codemeta in soup.find_all('meta'):
+            if "DESCRIPTION" in str(codemeta).upper():
+                print(str(codemeta).upper())
 
         spam = False if score < self.spam_threshold else True
 
@@ -68,17 +66,17 @@ class NomoroboService(object):
         }
         return result
 
-    def http_get(self, url, add_headers={}, allowed_codes=[]):
-        data = ""
+    def http_get(self, url, allowed_codes=[]):
         try:
-            request = urllib.request.Request(url, headers=add_headers)
-            response = urllib.request.urlopen(request, timeout=5)
-            data = response.read()
-        except urllib.error.HTTPError as e:
-            code = e.getcode()
-            if code not in allowed_codes:
-                raise
-            data = e.read()
+            html_doc = urllib3.request(
+                "GET",
+                url
+            )
+
+            data = html_doc.data
+        except:
+            data = ""
+
         return data
 
     def __init__(self, spam_threshold=2):
